@@ -1,0 +1,44 @@
+[
+  {
+    "name": "بی‌بی‌سی فارسی",
+    "url": "https://feeds.bbci.co.uk/persian/rss.xml",
+    "label": "فارسی‌زبان، خارج از ایران",
+    "priority": 1,
+    "enabled": true
+  },
+  {
+    "name": "دویچه‌وله فارسی",
+    "url": "https://rss.dw.com/rdf/rss-per-all",
+    "label": "فارسی‌زبان، خارج از ایران",
+    "priority": 1,
+    "enabled": true
+  },
+  {
+    "name": "یورونیوز فارسی",
+    "url": "https://parsi.euronews.com/rss",
+    "label": "فارسی‌زبان، خارج از ایران",
+    "priority": 1,
+    "enabled": true
+  },
+  {
+    "name": "ایرنا",
+    "url": "https://www.irna.ir/rss",
+    "label": "داخل ایران، خبرگزاری رسمی دولت",
+    "priority": 1,
+    "enabled": true
+  },
+  {
+    "name": "ایسنا",
+    "url": "https://www.isna.ir/rss",
+    "label": "داخل ایران",
+    "priority": 1,
+    "enabled": true
+  },
+  {
+    "name": "مهر",
+    "url": "https://www.mehrnews.com/rss",
+    "label": "داخل ایران",
+    "priority": 1,
+    "enabled": true
+  }
+]
