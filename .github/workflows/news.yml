@@ -41,5 +41,11 @@ jobs:
         run: |
           git config user.name "news-bot"
           git config user.email "news-bot@users.noreply.github.com"
-          git add seen.json || true
-          git diff --cached --quiet || (git commit -m "update seen items" && git push)
+          git add seen.json
+          git diff --cached --quiet && exit 0
+          git commit -m "update seen items"
+          for i in 1 2 3; do
+            git pull --rebase -X theirs origin main && git push && exit 0
+            sleep 5
+          done
+          exit 1
