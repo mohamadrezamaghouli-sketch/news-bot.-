@@ -184,7 +184,10 @@ def main():
     if first_run:
         fresh.sort(key=lambda i: i["ts"], reverse=True)
         to_post = list(reversed(fresh[:FIRST_RUN_POSTS]))
-        seen.extend(i["id"] for i in fresh)  # everything else is considered old news
+        # everything not being posted now is considered old news; posted items
+        # are added to "seen" only after Telegram accepts them (see below)
+        posting_ids = {i["id"] for i in to_post}
+        seen.extend(i["id"] for i in fresh if i["id"] not in posting_ids)
     else:
         fresh.sort(key=lambda i: (i["priority"], i["ts"]))
         to_post = fresh[:MAX_POSTS_PER_RUN]
@@ -199,6 +202,12 @@ def main():
         else:
             print("Stopping: could not post to Telegram.")
             break
+
+    # Had news to send but nothing reached Telegram: do NOT save state,
+    # otherwise these items would be remembered as "seen" and lost.
+    if to_post and posted == 0:
+        print("Could not post anything to Telegram - state not saved.")
+        sys.exit(1)
 
     save_json(SEEN_FILE, seen[-SEEN_LIMIT:])
     print("Done. posted=%d, new=%d, failed feeds=%s" % (posted, len(new_items), failed or "none"))
