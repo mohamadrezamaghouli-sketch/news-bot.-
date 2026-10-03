@@ -33,19 +33,26 @@ jobs:
 
       - name: Run bot
         env:
+          PYTHONUNBUFFERED: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py ${{ inputs.test && '--test' || '' }}
 
+      # Runs even if the bot step failed, so progress made before a failure is kept.
       - name: Save state
+        if: ${{ !cancelled() }}
         run: |
+          [ -f seen.json ] || exit 0
           git config user.name "news-bot"
           git config user.email "news-bot@users.noreply.github.com"
           git add seen.json
           git diff --cached --quiet && exit 0
           git commit -m "update seen items"
           for i in 1 2 3; do
-            git pull --rebase -X theirs origin main && git push && exit 0
+            if git pull --rebase -X theirs origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME"; then
+              exit 0
+            fi
+            git rebase --abort 2>/dev/null || true
             sleep 5
           done
           exit 1
