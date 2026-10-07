@@ -30,12 +30,13 @@ import requests
 _DIGITS = {ord(c): str(i) for i, c in enumerate("۰۱۲۳۴۵۶۷۸۹")}          # Persian digits
 _DIGITS.update({ord(c): str(i) for i, c in enumerate("٠١٢٣٤٥٦٧٨٩")})    # Arabic-Indic digits
 _MINUS = {ord(c): "-" for c in "−–—‐‑‒﹣－ـ"}                            # look-alike minus signs
+_COLON = {ord(c): ":" for c in "：﹕꞉∶"}                                   # look-alike colons
 
 
 def clean_secret(value):
     """Secrets are often typed or pasted with a Persian keyboard, stray spaces, invisible
     right-to-left marks or quotes: normalise all of that."""
-    text = (value or "").translate(_DIGITS).translate(_MINUS)
+    text = (value or "").translate(_DIGITS).translate(_MINUS).translate(_COLON)
     text = "".join(ch for ch in text
                    if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc"))
     return text.strip("\"'`")
@@ -45,8 +46,16 @@ RAW_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or ""
 RAW_CHAT = os.environ.get("TELEGRAM_CHAT_ID") or ""
 
 TOKEN = clean_secret(RAW_TOKEN)
-if TOKEN.lower().startswith("bot") and ":" in TOKEN:  # copied from a URL like .../bot123:ABC
+if re.match(r"(?i)bot[0-9]", TOKEN):  # copied from a URL like .../bot123456789:AAF...
     TOKEN = TOKEN[3:]
+TOKEN_FIXED = False
+if ":" not in TOKEN:
+    # The ':' between the bot id and the secret got lost or was typed as another character
+    # (for example ';' when Shift was not pressed). The secret part of a token starts with 'A'.
+    _m = re.fullmatch(r"([0-9]{6,12})[^A-Za-z0-9_-]?(A[A-Za-z0-9_-]{30,})", TOKEN)
+    if _m:
+        TOKEN = _m.group(1) + ":" + _m.group(2)
+        TOKEN_FIXED = True
 CHAT_ID = clean_secret(RAW_CHAT)
 CHAT_ID_FIXED = False
 if re.fullmatch(r"[0-9]+-", CHAT_ID):  # right-to-left typing put the minus sign at the end
@@ -74,6 +83,22 @@ def token_fingerprint():
             "with '%s'. In @BotFather (/mybots > your bot > API Token) the number before ':' must "
             "be the same and the token must end with the same two characters."
             % (safe(bot_id, 20), len(secret), safe(secret[-2:], 2)))
+
+
+def token_shape():
+    """Structure of the saved token without revealing it: where the ':' is and which
+    characters can never occur in a token."""
+    colons = TOKEN.count(":")
+    before, _, after = TOKEN.partition(":")
+    odd = []
+    for ch in TOKEN:
+        if not re.fullmatch(r"[A-Za-z0-9_:-]", ch) and ch not in odd:
+            odd.append(ch)
+    odd_text = ", ".join("U+%04X" % ord(ch) + ("'%s'" % ch if ch.isprintable() else "") for ch in odd[:5])
+    return (" Shape: %d colon(s); %d characters before the first ':' (%d of them digits) and %d after. "
+            "Unexpected characters: %s." % (colons, len(before), sum(c.isdigit() for c in before),
+                                            len(after), odd_text or "none"))
+
 
 SOURCES_FILE = "sources.json"
 SEEN_FILE = "seen.json"
@@ -280,7 +305,8 @@ def config_problems():
         if re.fullmatch(r"-?\d+|@\w+", TOKEN):
             hint = " It looks like a chat id - the two secrets may be swapped."
         problems.append("secret TELEGRAM_BOT_TOKEN has a wrong format (length %d; expected "
-                        "like 123456789:AAF...).%s%s" % (len(TOKEN), hint, nonascii_note(RAW_TOKEN)))
+                        "like 123456789:AAF...).%s%s%s"
+                        % (len(TOKEN), hint, nonascii_note(RAW_TOKEN), token_shape()))
     if not CHAT_ID:
         problems.append("secret TELEGRAM_CHAT_ID is empty or missing (check its exact name).")
     elif not CHAT_RE.match(CHAT_ID):
@@ -342,6 +368,10 @@ def main():
         print("::warning title=News bot::Secret TELEGRAM_CHAT_ID is missing the leading minus "
               "sign; it was fixed automatically for this run. Please edit the secret so that "
               "it starts with -100.")
+    if TOKEN_FIXED:
+        print("::warning title=News bot::Secret TELEGRAM_BOT_TOKEN had a missing or wrong ':' "
+              "between the bot id and the secret part; it was repaired for this run. Please "
+              "paste the token again from @BotFather.")
     problems = config_problems()
     if problems:
         for p in problems:
