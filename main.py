@@ -56,6 +56,21 @@ if ":" not in TOKEN:
     if _m:
         TOKEN = _m.group(1) + ":" + _m.group(2)
         TOKEN_FIXED = True
+if TOKEN.count(":") == 1:
+    # Junk glued to the token while copying (a letter of 'bot', '/', '.', quotes...).
+    # The bot id before ':' is digits only; the secret after it uses letters, digits, '_' and '-'.
+    _id, _secret = TOKEN.split(":")
+    _id2 = re.sub(r"[^0-9]", "", _id)
+    _secret2 = re.sub(r"[^A-Za-z0-9_-]", "", _secret)
+    if (_id2, _secret2) != (_id, _secret) and 6 <= len(_id2) <= 12 and len(_secret2) >= 30:
+        TOKEN = _id2 + ":" + _secret2
+        TOKEN_FIXED = True
+if not re.fullmatch(r"[0-9]{5,15}:[A-Za-z0-9_-]{30,}", TOKEN):
+    # Token buried in longer text, e.g. a whole URL: https://api.telegram.org/bot123:AAF.../getUpdates
+    _m = re.search(r"(?<![0-9])([0-9]{6,12}):(A[A-Za-z0-9_-]{30,})", TOKEN)
+    if _m:
+        TOKEN = _m.group(1) + ":" + _m.group(2)
+        TOKEN_FIXED = True
 CHAT_ID = clean_secret(RAW_CHAT)
 CHAT_ID_FIXED = False
 if re.fullmatch(r"[0-9]+-", CHAT_ID):  # right-to-left typing put the minus sign at the end
@@ -88,16 +103,23 @@ def token_fingerprint():
 def token_shape():
     """Structure of the saved token without revealing it: where the ':' is and which
     characters can never occur in a token."""
-    colons = TOKEN.count(":")
+    def show(chars):
+        return ", ".join(("'%s' " % ch if ch.isprintable() else "") + "U+%04X" % ord(ch)
+                         for ch in chars[:5]) or "none"
+
     before, _, after = TOKEN.partition(":")
-    odd = []
-    for ch in TOKEN:
-        if not re.fullmatch(r"[A-Za-z0-9_:-]", ch) and ch not in odd:
-            odd.append(ch)
-    odd_text = ", ".join("U+%04X" % ord(ch) + ("'%s'" % ch if ch.isprintable() else "") for ch in odd[:5])
-    return (" Shape: %d colon(s); %d characters before the first ':' (%d of them digits) and %d after. "
-            "Unexpected characters: %s." % (colons, len(before), sum(c.isdigit() for c in before),
-                                            len(after), odd_text or "none"))
+    bad_id, bad_secret = [], []
+    for ch in before:
+        if not ch.isdigit() and ch not in bad_id:
+            bad_id.append(ch)
+    for ch in after:
+        if not re.fullmatch(r"[A-Za-z0-9_-]", ch) and ch not in bad_secret:
+            bad_secret.append(ch)
+    return ("Shape: %d colon(s); the id part before ':' has %d characters (%d digits; a bot id is "
+            "10 digits) and the secret part after it has %d (normally 35). Non-digit characters "
+            "in the id part: %s. Invalid characters in the secret part: %s."
+            % (TOKEN.count(":"), len(before), sum(c.isdigit() for c in before), len(after),
+               show(bad_id), show(bad_secret)))
 
 
 SOURCES_FILE = "sources.json"
@@ -304,9 +326,9 @@ def config_problems():
         hint = ""
         if re.fullmatch(r"-?\d+|@\w+", TOKEN):
             hint = " It looks like a chat id - the two secrets may be swapped."
-        problems.append("secret TELEGRAM_BOT_TOKEN has a wrong format (length %d; expected "
-                        "like 123456789:AAF...).%s%s%s"
-                        % (len(TOKEN), hint, nonascii_note(RAW_TOKEN), token_shape()))
+        problems.append("secret TELEGRAM_BOT_TOKEN has a wrong format (length %d). %s%s%s "
+                        "Expected like 1234567890:AAF... (digits, a colon, 35 letters or digits)."
+                        % (len(TOKEN), token_shape(), hint, nonascii_note(RAW_TOKEN)))
     if not CHAT_ID:
         problems.append("secret TELEGRAM_CHAT_ID is empty or missing (check its exact name).")
     elif not CHAT_RE.match(CHAT_ID):
