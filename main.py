@@ -64,6 +64,17 @@ def nonascii_note(raw):
     n = sum(1 for ch in raw if ord(ch) > 127)
     return " Non-English characters in the secret: %d." % n if n else ""
 
+
+def token_fingerprint():
+    """Safe description of the token so it can be compared with @BotFather's:
+    the number before ':' is the public bot id; of the secret part only its length
+    and last two characters are shown."""
+    bot_id, _, secret = TOKEN.partition(":")
+    return ("Fingerprint of the saved token: bot id=%s, secret part has %d characters and ends "
+            "with '%s'. In @BotFather (/mybots > your bot > API Token) the number before ':' must "
+            "be the same and the token must end with the same two characters."
+            % (safe(bot_id, 20), len(secret), safe(secret[-2:], 2)))
+
 SOURCES_FILE = "sources.json"
 SEEN_FILE = "seen.json"
 
@@ -292,7 +303,8 @@ def self_check():
         return False
     if status == 401:
         alert("CHECK token: REJECTED (401). The value in secret TELEGRAM_BOT_TOKEN is wrong or was "
-              "revoked. Copy it again from @BotFather (/mybots > your bot > API Token) and update the secret.")
+              "revoked. Copy it again from @BotFather (/mybots > your bot > API Token) and update the secret. "
+              + token_fingerprint())
         return False
     if status != 200 or not data.get("ok"):
         alert("CHECK token: unexpected answer: %s" % error_text(status, data))
