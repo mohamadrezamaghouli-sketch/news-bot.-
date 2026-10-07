@@ -63,6 +63,14 @@ def safe(value, limit=200):
     return re.sub(r"\s+", " ", str(value)).replace("::", ": :")[:limit]
 
 
+def alert(msg):
+    """Log line plus a GitHub annotation, which is shown at the top of the run page
+    even when the browser fails to load the step logs."""
+    line = re.sub(r"\s+", " ", msg).strip()
+    print(line)
+    print("::error title=News bot::%s" % line.replace("%", "%25"))
+
+
 def clean_text(text):
     text = html.unescape(text or "")
     text = re.sub(r"<[^>]+>", " ", text)
@@ -214,7 +222,7 @@ def send_message(text):
             wait = params.get("retry_after", 5) if isinstance(params, dict) else 5
             time.sleep(min(int(wait), 60) + 1)
             continue
-        print("Telegram error %s" % error_text(status, data))
+        alert("Telegram error %s" % error_text(status, data))
         if status in (401, 403, 404):
             return "fatal"
         desc = str(data.get("description", "")).lower()
@@ -257,18 +265,18 @@ def self_check():
         print("CHECK: cannot reach api.telegram.org from this server.")
         return False
     if status == 401:
-        print("CHECK token: REJECTED (401). The value in secret TELEGRAM_BOT_TOKEN is wrong or was "
+        alert("CHECK token: REJECTED (401). The value in secret TELEGRAM_BOT_TOKEN is wrong or was "
               "revoked. Copy it again from @BotFather (/mybots > your bot > API Token) and update the secret.")
         return False
     if status != 200 or not data.get("ok"):
-        print("CHECK token: unexpected answer: %s" % error_text(status, data))
+        alert("CHECK token: unexpected answer: %s" % error_text(status, data))
         return False
     bot = data.get("result") or {}
     print("CHECK token: OK (bot @%s)" % safe(bot.get("username", "?")))
 
     status, data = tg("getChat", {"chat_id": CHAT_ID})
     if status != 200 or not data.get("ok"):
-        print("CHECK channel: FAILED (%s). Wrong TELEGRAM_CHAT_ID, or the bot was never added "
+        alert("CHECK channel: FAILED (%s). Wrong TELEGRAM_CHAT_ID, or the bot was never added "
               "to the channel as an administrator." % error_text(status, data))
         return False
     print("CHECK channel: OK (type=%s)" % safe((data.get("result") or {}).get("type", "?")))
@@ -277,11 +285,11 @@ def self_check():
     if status == 200 and data.get("ok"):
         member = data.get("result") or {}
         if member.get("status") not in ("administrator", "creator"):
-            print("CHECK admin: the bot is NOT an administrator of the channel (status=%s)."
+            alert("CHECK admin: the bot is NOT an administrator of the channel (status=%s)."
                   % safe(member.get("status", "?")))
             return False
         if member.get("can_post_messages") is False:
-            print("CHECK admin: the bot is an admin but lacks the 'Post messages' permission.")
+            alert("CHECK admin: the bot is an admin but lacks the 'Post messages' permission.")
             return False
         print("CHECK admin: OK")
     else:
@@ -295,7 +303,7 @@ def main():
     problems = config_problems()
     if problems:
         for p in problems:
-            print("CONFIG PROBLEM: " + p)
+            alert("CONFIG PROBLEM: " + p)
         sys.exit(1)
 
     if "--test" in sys.argv:
@@ -327,7 +335,7 @@ def main():
     if active == 0:
         sys.exit("No enabled sources in sources.json.")
     if len(failed) == active:
-        print("All %d feeds failed - nothing processed, state not saved." % active)
+        alert("All %d feeds failed - nothing processed, state not saved." % active)
         sys.exit(1)  # red X in GitHub (and an e-mail to you)
 
     # One entry per item; seen.json from older versions stored the raw id, so accept both.
@@ -375,7 +383,7 @@ def main():
 
     # Nothing reached Telegram: do NOT save state, or these items would be lost.
     if stop_reason and posted == 0 and skipped == 0:
-        print("Nothing could be posted - state not saved, the items will be retried.")
+        alert("Nothing could be posted - state not saved, the items will be retried.")
         if stop_reason == "fatal":
             self_check()  # explains what is wrong
         sys.exit(1)
