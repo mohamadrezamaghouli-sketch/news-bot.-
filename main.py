@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 from calendar import timegm
 from datetime import datetime, timedelta, timezone
 
@@ -26,18 +27,42 @@ import feedparser
 import requests
 
 
+_DIGITS = {ord(c): str(i) for i, c in enumerate("۰۱۲۳۴۵۶۷۸۹")}          # Persian digits
+_DIGITS.update({ord(c): str(i) for i, c in enumerate("٠١٢٣٤٥٦٧٨٩")})    # Arabic-Indic digits
+_MINUS = {ord(c): "-" for c in "−–—‐‑‒﹣－ـ"}                            # look-alike minus signs
+
+
 def clean_secret(value):
-    """Secrets are often pasted with stray spaces, newlines or quotes: remove them."""
-    return re.sub(r"\s+", "", value or "").strip("\"'`")
+    """Secrets are often typed or pasted with a Persian keyboard, stray spaces, invisible
+    right-to-left marks or quotes: normalise all of that."""
+    text = (value or "").translate(_DIGITS).translate(_MINUS)
+    text = "".join(ch for ch in text
+                   if not ch.isspace() and unicodedata.category(ch) not in ("Cf", "Cc"))
+    return text.strip("\"'`")
 
 
-TOKEN = clean_secret(os.environ.get("TELEGRAM_BOT_TOKEN"))
+RAW_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or ""
+RAW_CHAT = os.environ.get("TELEGRAM_CHAT_ID") or ""
+
+TOKEN = clean_secret(RAW_TOKEN)
 if TOKEN.lower().startswith("bot") and ":" in TOKEN:  # copied from a URL like .../bot123:ABC
     TOKEN = TOKEN[3:]
-CHAT_ID = clean_secret(os.environ.get("TELEGRAM_CHAT_ID"))
+CHAT_ID = clean_secret(RAW_CHAT)
+CHAT_ID_FIXED = False
+if re.fullmatch(r"[0-9]+-", CHAT_ID):  # right-to-left typing put the minus sign at the end
+    CHAT_ID = "-" + CHAT_ID[:-1]
+    CHAT_ID_FIXED = True
+if re.fullmatch(r"100[0-9]{8,}", CHAT_ID):  # the leading minus sign got lost while copying
+    CHAT_ID = "-" + CHAT_ID
+    CHAT_ID_FIXED = True
 
-TOKEN_RE = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,}$")
-CHAT_RE = re.compile(r"^(-100\d{6,}|@[A-Za-z][A-Za-z0-9_]{3,})$")
+TOKEN_RE = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,}$", re.ASCII)
+CHAT_RE = re.compile(r"^(-100\d{6,}|@[A-Za-z][A-Za-z0-9_]{3,})$", re.ASCII)
+
+
+def nonascii_note(raw):
+    n = sum(1 for ch in raw if ord(ch) > 127)
+    return " Non-English characters in the secret: %d." % n if n else ""
 
 SOURCES_FILE = "sources.json"
 SEEN_FILE = "seen.json"
@@ -244,7 +269,7 @@ def config_problems():
         if re.fullmatch(r"-?\d+|@\w+", TOKEN):
             hint = " It looks like a chat id - the two secrets may be swapped."
         problems.append("secret TELEGRAM_BOT_TOKEN has a wrong format (length %d; expected "
-                        "like 123456789:AAF...).%s" % (len(TOKEN), hint))
+                        "like 123456789:AAF...).%s%s" % (len(TOKEN), hint, nonascii_note(RAW_TOKEN)))
     if not CHAT_ID:
         problems.append("secret TELEGRAM_CHAT_ID is empty or missing (check its exact name).")
     elif not CHAT_RE.match(CHAT_ID):
@@ -254,7 +279,8 @@ def config_problems():
         elif re.fullmatch(r"-?\d+", CHAT_ID):
             hint = " A channel id must start with -100."
         problems.append("secret TELEGRAM_CHAT_ID has a wrong format (length %d; a private channel "
-                        "looks like -1001234567890, a public one like @name).%s" % (len(CHAT_ID), hint))
+                        "looks like -1001234567890, a public one like @name).%s%s"
+                        % (len(CHAT_ID), hint, nonascii_note(RAW_CHAT)))
     return problems
 
 
@@ -300,6 +326,10 @@ def self_check():
 # -------------------------------------------------------------------- main
 
 def main():
+    if CHAT_ID_FIXED:
+        print("::warning title=News bot::Secret TELEGRAM_CHAT_ID is missing the leading minus "
+              "sign; it was fixed automatically for this run. Please edit the secret so that "
+              "it starts with -100.")
     problems = config_problems()
     if problems:
         for p in problems:
