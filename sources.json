@@ -4,41 +4,130 @@
     "url": "https://feeds.bbci.co.uk/persian/rss.xml",
     "label": "فارسی‌زبان، خارج از ایران",
     "priority": 1,
-    "enabled": true
+    "enabled": true,
+    "lang": "fa"
   },
   {
     "name": "دویچه‌وله فارسی",
     "url": "https://rss.dw.com/rdf/rss-per-all",
     "label": "فارسی‌زبان، خارج از ایران",
     "priority": 1,
-    "enabled": true
+    "enabled": true,
+    "lang": "fa"
   },
   {
     "name": "یورونیوز فارسی",
     "url": "https://parsi.euronews.com/rss",
     "label": "فارسی‌زبان، خارج از ایران",
     "priority": 1,
-    "enabled": true
+    "enabled": true,
+    "lang": "fa"
   },
   {
     "name": "ایرنا",
     "url": "https://www.irna.ir/rss",
     "label": "داخل ایران، خبرگزاری رسمی دولت",
     "priority": 1,
-    "enabled": true
+    "enabled": true,
+    "lang": "fa",
+    "strict": true
   },
   {
     "name": "ایسنا",
     "url": "https://www.isna.ir/rss",
     "label": "داخل ایران",
     "priority": 1,
-    "enabled": true
+    "enabled": true,
+    "lang": "fa",
+    "strict": true
   },
   {
     "name": "مهر",
     "url": "https://www.mehrnews.com/rss",
     "label": "داخل ایران",
     "priority": 1,
+    "enabled": true,
+    "lang": "fa",
+    "strict": true
+  },
+  {
+    "name": "The Guardian",
+    "url": "https://www.theguardian.com/world/rss",
+    "label": "بریتانیا، چپ‌میانه",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "The Guardian · خاورمیانه",
+    "url": "https://www.theguardian.com/world/middleeast/rss",
+    "label": "بریتانیا، چپ‌میانه",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "New York Times",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/MiddleEast.xml",
+    "label": "آمریکا، لیبرال",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "New York Times · جهان",
+    "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+    "label": "آمریکا، لیبرال",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "Washington Post",
+    "url": "https://feeds.washingtonpost.com/rss/world",
+    "label": "آمریکا",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "Politico",
+    "url": "https://rss.politico.com/politics-news.xml",
+    "label": "آمریکا، سیاست داخلی و خارجی",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "DW English",
+    "url": "https://rss.dw.com/rdf/rss-en-all",
+    "label": "آلمان، رسانه‌ی عمومی",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "Bild",
+    "url": "https://www.bild.de/rssfeeds/vw-politik/vw-politik-72492748,sort=1,view=rss2.bild.xml",
+    "label": "آلمان، آلمانی‌زبان",
+    "priority": 2,
+    "lang": "de",
+    "enabled": true
+  },
+  {
+    "name": "RT",
+    "url": "https://www.rt.com/rss/news/",
+    "label": "رسانه‌ی دولتی روسیه",
+    "priority": 2,
+    "lang": "en",
+    "enabled": true
+  },
+  {
+    "name": "Sputnik",
+    "url": "https://sputnikglobe.com/export/rss2/archive/index.xml",
+    "label": "رسانه‌ی دولتی روسیه",
+    "priority": 2,
+    "lang": "en",
     "enabled": true
   }
 ]
