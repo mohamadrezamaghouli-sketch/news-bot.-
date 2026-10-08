@@ -623,6 +623,133 @@ def self_check():
     return True
 
 
+# ------------------------------------------------------------ prices (rates)
+
+RATES_FILE = "rates.json"
+RATES_EVERY_MINUTES = 60      # regular price message
+RATES_CHANGE_PERCENT = 0.5    # extra message when any price moved this much since the last message
+RATES_NIGHT = (0, 8)          # Tehran hours: at night only post when something changed
+TEHRAN = timezone(timedelta(hours=3, minutes=30))
+# (tgju.org indicator, title, emoji, unit): rial values are shown in toman.
+RATE_ITEMS = [
+    ("price_dollar_rl", "دلار آمریکا", "💵", "toman"),
+    ("price_eur", "یورو", "💶", "toman"),
+    ("geram18", "طلای ۱۸ عیار (هر گرم)", "🥇", "toman"),
+    ("sekee", "سکه‌ی امامی", "🪙", "toman"),
+    ("ons", "اونس جهانی طلا", "🌍", "usd"),
+]
+RATE_MAX_AGE_DAYS = 4         # rows older than this (e.g. a long holiday) are ignored
+_FA_DIGITS = str.maketrans("0123456789,.-", "۰۱۲۳۴۵۶۷۸۹٬٫−")
+
+
+def fa_num(value, decimals=0):
+    text = ("{:,.%df}" % decimals).format(value)
+    return text.translate(_FA_DIGITS)
+
+
+def fetch_rate(slug):
+    """Latest daily row of a tgju.org indicator -> price (float) or None."""
+    r = requests.get("https://api.tgju.org/v1/market/indicator/summary-table-data/" + slug,
+                     headers=HEADERS, timeout=25)
+    r.raise_for_status()
+    rows = r.json().get("data") or []
+    best = None
+    for row in rows[:10]:
+        try:
+            day = datetime.strptime(str(row[6]), "%Y/%m/%d").replace(tzinfo=timezone.utc)
+            price = float(str(row[3]).replace(",", ""))
+        except (ValueError, IndexError, TypeError):
+            continue
+        if best is None or day > best[0]:
+            best = (day, price)
+    if best is None:
+        return None
+    if datetime.now(timezone.utc) - best[0] > timedelta(days=RATE_MAX_AGE_DAYS):
+        return None
+    return best[1]
+
+
+def load_rates_state():
+    try:
+        with open(RATES_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def format_rates(prices, last):
+    now = datetime.now(TEHRAN)
+    lines = ["<b>💱 قیمت بازار آزاد</b> — %s" % html.escape(fa_num(now.hour).zfill(2) + ":" + fa_num(now.minute).zfill(2)), ""]
+    for slug, title, emoji, unit in RATE_ITEMS:
+        if slug not in prices:
+            continue
+        p = prices[slug]
+        shown = p / 10 if unit == "toman" else p
+        text = "%s %s: <b>%s</b> %s" % (emoji, title, fa_num(shown), "تومان" if unit == "toman" else "دلار")
+        old = last.get(slug)
+        if old:
+            diff = p - old
+            if diff:
+                pct = diff / old * 100
+                d = diff / 10 if unit == "toman" else diff
+                text += " (%s %s | %s٪)" % ("🔺" if diff > 0 else "🔻", fa_num(abs(d)),
+                                            fa_num(abs(pct), 2))
+        lines.append(text)
+    lines.append("")
+    lines.append("📊 منبع: tgju.org · تغییرها نسبت به پیام قبلی")
+    return "\n".join(lines)
+
+
+def rates_step():
+    """Posts the price message every hour, and immediately when prices move noticeably.
+    Never raises: a failure here must not stop the news."""
+    try:
+        state = load_rates_state()
+        last = state.get("last") or {}
+        now_ts = time.time()
+        prices = {}
+        for slug, title, emoji, unit in RATE_ITEMS:
+            try:
+                p = fetch_rate(slug)
+            except Exception as exc:
+                print("RATES %s failed: %s" % (slug, safe(exc, 100)))
+                continue
+            if p:
+                prices[slug] = p
+        if not prices:
+            print("RATES: no prices available this run.")
+            return
+        print("RATES: got %d/%d prices." % (len(prices), len(RATE_ITEMS)))
+        biggest = 0.0
+        for slug, p in prices.items():
+            old = last.get(slug)
+            if old:
+                biggest = max(biggest, abs(p - old) / old * 100)
+        unchanged = bool(last) and all(abs(prices[s] - last.get(s, -1)) < 1e-9 for s in prices)
+        due = now_ts - float(state.get("ts", 0)) >= RATES_EVERY_MINUTES * 60 - 120
+        spike = bool(last) and biggest >= RATES_CHANGE_PERCENT
+        night = RATES_NIGHT[0] <= datetime.now(TEHRAN).hour < RATES_NIGHT[1]
+        if not (spike or (due and not (unchanged and night))):
+            print("RATES: nothing to post (due=%s, biggest move=%.2f%%)." % (due, biggest))
+            return
+        text = format_rates(prices, last)
+        if spike and not due:
+            text = text.replace("<b>💱 قیمت بازار آزاد</b>", "<b>⚡ تغییر قیمت در بازار آزاد</b>", 1)
+        if send_message(text) == "ok":
+            merged = dict(last)
+            merged.update(prices)
+            with open(RATES_FILE, "w", encoding="utf-8") as f:
+                json.dump({"ts": now_ts, "last": merged}, f)
+            print("RATES: posted (%s)." % ("spike" if spike and not due else "hourly"))
+        else:
+            print("RATES: could not post, will retry next run.")
+    except Exception as exc:
+        print("RATES: unexpected error: %s" % type(exc).__name__)
+
+
 # -------------------------------------------------------------------- main
 
 def main():
@@ -646,6 +773,8 @@ def main():
         result = send_message("✅ ربات خبر فعال است و به کانال وصل شد.")
         print("Test message: %s" % result)
         sys.exit(0 if result == "ok" else 1)
+
+    rates_step()
 
     sources = load_sources()
     seen, first_run = load_seen()
