@@ -125,8 +125,11 @@ def token_shape():
 SOURCES_FILE = "sources.json"
 SEEN_FILE = "seen.json"
 
-MAX_AGE_HOURS = 24          # items older than this are never posted
-MAX_POSTS_PER_RUN = 10      # keeps the channel from being flooded
+MAX_AGE_HOURS = 24          # Persian items older than this are never posted
+MAX_AGE_FOREIGN_HOURS = 8   # foreign items: only fresh ones (avoids a flood of backlog)
+MAX_PERSIAN_PER_RUN = 8     # per run (every ~15 min); keeps the channel readable
+MAX_FOREIGN_PER_RUN = 4     # at most one per foreign source in each run
+WORLD_PER_RUN = 3           # at most this many "rank 3" (non-Iran, non-Middle-East) items per run
 FIRST_RUN_POSTS = 5         # on the very first run, post only the newest few
 SUMMARY_CHARS = 280
 TITLE_CHARS = 500
@@ -134,9 +137,77 @@ SEEN_LIMIT = 5000
 PAUSE_BETWEEN_POSTS = 3     # seconds (Telegram allows ~20 msgs/min to a channel)
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
 
-# Titles containing these words are skipped (we want politics/economy, not sport/culture).
-# Edit freely.
-EXCLUDE_WORDS = ["فوتبال", "لیگ برتر", "سینما", "بازیگر", "کنسرت", "المپیک"]
+GEMINI_KEY = clean_secret(os.environ.get("GEMINI_API_KEY", ""))
+GROQ_KEY = clean_secret(os.environ.get("GROQ_API_KEY", ""))
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "").strip() or "gemini-2.5-flash-lite"
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "").strip() or "llama-3.3-70b-versatile"
+
+# ---- Filters. All lists are plain words - edit freely. ----
+# Matching is case-insensitive; Persian text is normalised (ی/ي, ک/ك, half-spaces removed).
+
+# Never posted from any source (sport, culture, celebrity ...).
+EXCLUDE_WORDS = [
+    # Persian
+    "فوتبال", "لیگ برتر", "سینما", "بازیگر", "کنسرت", "المپیک", "والیبال", "بسکتبال", "کشتی گیر", "کشتی‌گیر",
+    "پرسپولیس", "جام جهانی", "جشنواره", "سریال", "خواننده", "فیلم", "تئاتر", "موسیقی",
+    "هواشناسی", "آلودگی هوا", "تصادف", "طالع بینی", "آشپزی", "ماه عسل",
+    # English
+    "football", "soccer", "premier league", "champions league", "nba", "nfl", "olympic", "tennis",
+    "cricket", "rugby", "formula 1", "celebrity", "box office", "movie", "film review", "album",
+    "horoscope", "recipe", "fashion", "royal family", "taylor swift",
+    # German
+    "bundesliga", "fußball", "fussball", "dschungelcamp", "promis", "horoskop", "rezept",
+]
+
+# Iranian domestic agencies (source "strict": true): an item is kept ONLY if it contains
+# at least one of these (politics, economy, security, diplomacy).
+IMPORTANT_FA = [
+    "رئیس جمهور", "رییس جمهور", "رئیس‌جمهور", "پزشکیان", "رهبر انقلاب", "رهبر معظم", "خامنه",
+    "مجلس", "نمایندگان", "دولت", "وزیر", "وزارت خارجه", "عراقچی", "سخنگوی", "شورای نگهبان",
+    "قوه قضائیه", "قوه قضاییه", "شورای عالی", "مجمع تشخیص", "انتخابات", "سپاه", "ارتش", "نیروی",
+    "حمله", "جنگ", "موشک", "پهپاد", "تحریم", "مذاکر", "برجام", "هسته", "آژانس", "غنی‌سازی",
+    "شورای امنیت", "سازمان ملل", "آمریکا", "ترامپ", "اسرائیل", "اروپا", "روسیه", "چین",
+    "دلار", "ارز", "تورم", "بانک مرکزی", "نفت", "گاز", "بورس", "اقتصاد", "اقتصادی", "قیمت طلا",
+    "سکه", "بودجه", "مالیات", "یارانه", "بنزین", "صادرات", "واردات", "رشد", "بیکاری", "حقوق",
+    "بازار", "سرمایه", "تجارت", "گمرک", "کارگر", "بازداشت", "اعدام", "اعتراض", "امنیت",
+    "فیلترینگ", "اینترنت", "قطعی برق", "خشکسالی", "کمبود آب", "ناترازی", "سیاس",
+]
+
+# Everything else (foreign sources, world news that is not about Iran / the Middle East)
+# must contain at least one of these to count as "important politics / economy".
+WORLD_IMPORTANT = [
+    # English
+    "war", "ceasefire", "sanction", "nuclear", "missile", "military", "president", "prime minister",
+    "election", "summit", "treaty", "nato", "united nations", "security council", "g7", "g20",
+    "ukraine", "russia", "china", "taiwan", "putin", "trump", "biden", "xi jinping", "congress",
+    "senate", "parliament", "government", "minister", "diplomat", "tariff", "trade war", "economy",
+    "inflation", "interest rate", "central bank", "recession", "oil price", "opec", "gas price",
+    "stock market", "wall street", "imf", "world bank", "coup", "protest", "attack", "sanctions",
+    # German
+    "krieg", "waffenstillstand", "sanktion", "atom", "rakete", "bundeswehr", "kanzler", "präsident",
+    "wahl", "gipfel", "nato", "vereinte nationen", "ukraine", "russland", "china", "regierung",
+    "minister", "zoll", "wirtschaft", "inflation", "zinsen", "ölpreis", "börse", "angriff",
+    # Persian
+    "جنگ", "آتش‌بس", "تحریم", "هسته", "موشک", "رئیس‌جمهور", "نخست‌وزیر", "انتخابات", "نشست",
+    "ناتو", "سازمان ملل", "شورای امنیت", "اوکراین", "روسیه", "چین", "تایوان", "پوتین", "ترامپ",
+    "بایدن", "دولت", "وزیر", "تعرفه", "اقتصاد", "تورم", "بانک مرکزی", "نفت", "بورس", "حمله",
+]
+
+# Topic detection: Iran = rank 1, Middle East = rank 2, anything else = rank 3.
+IRAN_WORDS = [
+    "ایران", "تهران", "iran", "tehran", "teheran", "irgc", "khamenei", "pezeshkian", "araghchi",
+    "persian gulf", "خلیج فارس", "strait of hormuz", "تنگه هرمز",
+]
+MIDEAST_WORDS = [
+    "اسرائیل", "غزه", "لبنان", "سوریه", "عراق", "یمن", "حماس", "حزب‌الله", "حزب الله", "حوثی",
+    "عربستان", "قطر", "امارات", "ترکیه", "فلسطین", "خاورمیانه", "کرانه باختری", "اردن", "قاهره",
+    "کویت", "بحرین", "عمان", "بیت‌المقدس", "نتانیاهو", "اردوغان", "بیروت", "دمشق", "بغداد",
+    "israel", "gaza", "lebanon", "hezbollah", "syria", "iraq", "yemen", "houthi", "hamas",
+    "saudi", "qatar", "emirates", "uae", "turkey", "türkei", "palestin", "west bank", "middle east",
+    "red sea", "jerusalem", "egypt", "jordan", "netanyahu", "erdogan", "erdoğan", "beirut",
+    "damascus", "baghdad", "kuwait", "bahrain", "oman", "nahost", "libanon", "syrien", "irak",
+    "jemen", "katar", "israelis", "idf",
+]
 
 
 # ----------------------------------------------------------------- helpers
@@ -213,6 +284,59 @@ def entry_time(entry):
     return datetime.now(timezone.utc)
 
 
+# ---------------------------------------------------------- filters / topics
+
+_FA_LETTERS = "\u0600-\u06FF"
+
+
+def norm_text(text):
+    """Lower-case; unify Arabic/Persian letter variants; drop half-spaces and diacritics."""
+    text = unicodedata.normalize("NFKC", text or "").lower()
+    text = text.replace("ي", "ی").replace("ك", "ک").replace("\u200c", "").replace("\u200d", "")
+    return re.sub("[\u064B-\u065F\u0670]", "", text)
+
+
+def compile_words(words):
+    """One regex for a list of words. Latin words must start at a word boundary (and end at
+    one when very short); Persian words must start a word (short ones must be whole words,
+    optionally with the plural/ezafe suffixes ها / ی)."""
+    parts = []
+    for w in words:
+        w = re.escape(norm_text(w)).replace("\\ ", " ")
+        if re.match("[a-z0-9]", w):
+            parts.append(r"\b" + w + (r"\b" if len(w) <= 4 else ""))
+        else:
+            tail = "" if len(w) > 4 else "(?:ها|های|ی)?(?![%s])" % _FA_LETTERS
+            parts.append("(?<![%s])" % _FA_LETTERS + w + tail)
+    return re.compile("|".join(parts))
+
+
+EXCLUDE_RE = compile_words(EXCLUDE_WORDS)
+IMPORTANT_FA_RE = compile_words(IMPORTANT_FA)
+WORLD_RE = compile_words(WORLD_IMPORTANT)
+IRAN_RE = compile_words(IRAN_WORDS)
+MIDEAST_RE = compile_words(MIDEAST_WORDS)
+
+
+def classify(item):
+    """Returns (rank, keep). rank 1 = Iran, 2 = Middle East, 3 = world.
+    keep = False for items that are not important enough."""
+    title = norm_text(item["title"])
+    text = title + " " + norm_text(item["summary"])
+    if EXCLUDE_RE.search(title):
+        return 3, False
+    if item.get("strict"):
+        # Iranian domestic agency: only politics / economy / security / diplomacy.
+        if not IMPORTANT_FA_RE.search(text):
+            return 1, False
+        return 1, True
+    if IRAN_RE.search(text):
+        return 1, True
+    if MIDEAST_RE.search(text):
+        return 2, True
+    return 3, bool(WORLD_RE.search(text))
+
+
 # ------------------------------------------------------------------- feeds
 
 def fetch_feed(source):
@@ -242,6 +366,8 @@ def fetch_feed(source):
             "name": source["name"],
             "label": source.get("label", ""),
             "priority": source.get("priority", 3),
+            "lang": source.get("lang", "fa"),
+            "strict": bool(source.get("strict", False)),
         })
     return items
 
@@ -256,9 +382,123 @@ def format_post(item):
     source_line = item["name"]
     if item["label"]:
         source_line += " · " + item["label"]
+    if item.get("translated"):
+        source_line += " · ترجمه‌ی ماشینی"
     parts.append("📰 " + html.escape(source_line))
     parts.append('<a href="%s">لینک خبر اصلی</a>' % html.escape(item["link"], quote=True))
     return "\n\n".join(parts)
+
+
+# ------------------------------------------------------------- translation
+
+HAS_PERSIAN = re.compile("[\u0600-\u06FF]")
+TRANSLATE_PROMPT = (
+    "Translate each string in the JSON array below into fluent, neutral Persian (Farsi) as used in "
+    "news writing. Keep names, numbers and meaning exact; do not add, explain or editorialise. "
+    "Reply with ONLY a JSON array of the same length, in the same order.\n\n%s")
+
+
+def parse_json_array(text, n):
+    """Pulls a list of n non-empty Persian strings out of a model reply (or None)."""
+    text = (text or "").strip()
+    text = re.sub(r"^```(?:json)?|```$", "", text).strip()
+    try:
+        data = json.loads(text)
+    except ValueError:
+        m = re.search(r"\[.*\]", text, re.S)
+        if not m:
+            return None
+        try:
+            data = json.loads(m.group(0))
+        except ValueError:
+            return None
+    if isinstance(data, dict):
+        data = next((v for v in data.values() if isinstance(v, list)), None)
+    if not isinstance(data, list) or len(data) != n:
+        return None
+    out = [str(x).strip() for x in data]
+    return out if all(out) else None
+
+
+def translate_gemini(texts):
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent" % GEMINI_MODEL)
+    body = {"contents": [{"parts": [{"text": TRANSLATE_PROMPT % json.dumps(texts, ensure_ascii=False)}]}],
+            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}}
+    r = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_KEY}, timeout=60)
+    r.raise_for_status()
+    parts = r.json()["candidates"][0]["content"]["parts"]
+    return parse_json_array("".join(p.get("text", "") for p in parts), len(texts))
+
+
+def translate_groq(texts):
+    body = {"model": GROQ_MODEL, "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": TRANSLATE_PROMPT % json.dumps(
+                {"translations_input": texts}, ensure_ascii=False)
+                + '\n(Return the object {"translations": [...]}.)'}]}
+    r = requests.post("https://api.groq.com/openai/v1/chat/completions", json=body,
+                      headers={"Authorization": "Bearer " + GROQ_KEY}, timeout=60)
+    r.raise_for_status()
+    return parse_json_array(r.json()["choices"][0]["message"]["content"], len(texts))
+
+
+def translate_google(texts):
+    """Free, key-less Google Translate web endpoint (last resort)."""
+    out = []
+    for t in texts:
+        r = requests.get("https://translate.googleapis.com/translate_a/single",
+                         params={"client": "gtx", "sl": "auto", "tl": "fa", "dt": "t", "q": t},
+                         headers=HEADERS, timeout=30)
+        r.raise_for_status()
+        out.append("".join(seg[0] for seg in r.json()[0] if seg and seg[0]).strip())
+    return out if all(out) else None
+
+
+def translate_texts(texts):
+    """Persian translation of a list of strings: Gemini, then Groq, then Google Translate.
+    Returns (list, engine) or (None, None)."""
+    engines = []
+    if GEMINI_KEY:
+        engines.append(("Gemini", translate_gemini))
+    if GROQ_KEY:
+        engines.append(("Groq", translate_groq))
+    engines.append(("Google", translate_google))
+    for name, fn in engines:
+        try:
+            result = fn(texts)
+        except Exception as exc:  # network, quota (429), bad JSON ...
+            # Do not print exception text (URLs can contain keys).
+            print("Translation via %s failed: %s" % (name, type(exc).__name__))
+            continue
+        if result and len(result) == len(texts) and all(HAS_PERSIAN.search(t) for t in result):
+            return result, name
+        print("Translation via %s returned an unusable answer." % name)
+    return None, None
+
+
+def translate_items(items):
+    """Translates title + summary of non-Persian items in one request.
+    Returns the items that were translated; the others are left for the next run."""
+    todo = [i for i in items if i.get("lang", "fa") != "fa"]
+    done = [i for i in items if i.get("lang", "fa") == "fa"]
+    if not todo:
+        return done
+    texts = []
+    for i in todo:
+        texts.append(shorten(i["title"], TITLE_CHARS))
+        texts.append(i["summary"] or "-")
+    result, engine = translate_texts(texts)
+    if not result:
+        print("No translator available - %d foreign item(s) will be retried next run." % len(todo))
+        return done
+    print("Translated %d foreign item(s) with %s." % (len(todo), engine))
+    for k, i in enumerate(todo):
+        i["title"] = result[2 * k]
+        summ = result[2 * k + 1]
+        i["summary"] = "" if summ.strip(" -") == "" else summ
+        i["translated"] = True
+        done.append(i)
+    return done
 
 
 # ---------------------------------------------------------------- telegram
@@ -411,7 +651,9 @@ def main():
     seen, first_run = load_seen()
     seen_set = set(seen)
 
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
+    now = datetime.now(timezone.utc)
+    cutoff_fa = now - timedelta(hours=MAX_AGE_HOURS)
+    cutoff_foreign = now - timedelta(hours=MAX_AGE_FOREIGN_HOURS)
 
     all_items, failed, active = [], [], 0
     for source in sources:
@@ -439,24 +681,51 @@ def main():
     new_items = [i for i in unique.values()
                  if i["key"] not in seen_set and i["id"] not in seen_set]
 
-    # Old or filtered-out items are marked as seen without posting them.
+    # Old or not-important items are marked as seen without posting them.
     fresh = []
+    dropped = 0
     for i in new_items:
-        if i["ts"] < cutoff or any(w in i["title"] for w in EXCLUDE_WORDS):
+        cutoff = cutoff_fa if i["lang"] == "fa" else cutoff_foreign
+        i["rank"], keep = classify(i)
+        if i["ts"] < cutoff or not keep:
             seen.append(i["key"])
+            dropped += 1
         else:
             fresh.append(i)
+    print("Filter: %d new, %d dropped (old / not important), %d candidates." % (
+        len(new_items), dropped, len(fresh)))
 
     if first_run:
         fresh.sort(key=lambda i: i["ts"], reverse=True)
-        to_post = list(reversed(fresh[:FIRST_RUN_POSTS]))
+        to_post = translate_items(list(reversed(fresh[:FIRST_RUN_POSTS])))
         # Everything not posted now counts as old news; posted items are added
         # to "seen" only after Telegram accepts them (see below).
         posting = {i["key"] for i in to_post}
         seen.extend(i["key"] for i in fresh if i["key"] not in posting)
     else:
-        fresh.sort(key=lambda i: (i["priority"], i["ts"]))
-        to_post = fresh[:MAX_POSTS_PER_RUN]
+        # Persian agencies first, then foreign ones; within each: Iran, Middle East, world.
+        persian = sorted((i for i in fresh if i["lang"] == "fa"), key=lambda i: (i["rank"], i["ts"]))
+        foreign = sorted((i for i in fresh if i["lang"] != "fa"), key=lambda i: (i["rank"], i["ts"]))
+        to_post, world, used = [], 0, set()
+        for i in persian:
+            if len(to_post) >= MAX_PERSIAN_PER_RUN:
+                break
+            if i["rank"] == 3:
+                if world >= WORLD_PER_RUN:
+                    continue
+                world += 1
+            to_post.append(i)
+        foreign_pick = []
+        for i in foreign:  # at most one item per foreign source per run, for variety
+            if len(foreign_pick) >= MAX_FOREIGN_PER_RUN:
+                break
+            if i["name"] in used or (i["rank"] == 3 and world >= WORLD_PER_RUN):
+                continue
+            used.add(i["name"])
+            world += i["rank"] == 3
+            foreign_pick.append(i)
+        to_post += translate_items(foreign_pick)
+        to_post.sort(key=lambda i: (i["lang"] != "fa", i["rank"], i["ts"]))
 
     posted = skipped = 0
     stop_reason = None
